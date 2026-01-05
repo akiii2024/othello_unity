@@ -9,11 +9,13 @@ public class BoardHighlighter : MonoBehaviour
     public Material cursorMat;           // カーソル用マテリアル（nullの場合はhighlightMatを使用）
     public float yOffset = 0.01f;        // 盤面より少し上（Z-fight防止）
 
-    GameObject[,] tiles = new GameObject[8,8];
-    MeshRenderer[,] tileRenderers = new MeshRenderer[8,8]; // マテリアル切り替え用
+    GameObject[,] tiles;
+    MeshRenderer[,] tileRenderers; // マテリアル切り替え用
     GameObject cursorTile; // カーソル表示用
+    GameObject[] boundaryLines; // 境界線表示用
     int currentCursorX = -1;
     int currentCursorY = -1;
+    int boardSize = 8;
 
     void Awake()
     {
@@ -24,9 +26,55 @@ public class BoardHighlighter : MonoBehaviour
             stackHighlightMat.color = new Color(1f, 0.6f, 0.2f, 0.5f); // オレンジ
         }
 
-        // 8x8のQuadを生成
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        CreateTiles();
+    }
+
+    /// <summary>
+    /// ボードサイズ変更時にタイルを再構築
+    /// </summary>
+    public void RebuildTiles()
+    {
+        // 既存タイルを削除
+        if (tiles != null)
+        {
+            for (int y = 0; y < tiles.GetLength(1); y++)
+            for (int x = 0; x < tiles.GetLength(0); x++)
+            {
+                if (tiles[x, y] != null)
+                {
+                    Destroy(tiles[x, y]);
+                }
+            }
+        }
+        if (cursorTile != null)
+        {
+            Destroy(cursorTile);
+        }
+        
+        // 境界線を削除
+        if (boundaryLines != null)
+        {
+            foreach (var line in boundaryLines)
+            {
+                if (line != null) Destroy(line);
+            }
+        }
+
+        CreateTiles();
+    }
+
+    void CreateTiles()
+    {
+        // グリッドからサイズを取得
+        boardSize = grid != null ? grid.size : 8;
+        
+        // 配列を動的に割り当て
+        tiles = new GameObject[boardSize, boardSize];
+        tileRenderers = new MeshRenderer[boardSize, boardSize];
+
+        // ボードサイズに応じたQuadを生成
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             quad.name = $"HL_{x}_{y}";
@@ -65,13 +113,72 @@ public class BoardHighlighter : MonoBehaviour
         cursorRend.sharedMaterial = cursorMat != null ? cursorMat : highlightMat;
         
         cursorTile.SetActive(false);
+        
+        // 境界線を作成（盤面のプレイ可能エリアを示す）
+        CreateBoundaryLines();
+    }
+    
+    void CreateBoundaryLines()
+    {
+        boundaryLines = new GameObject[4]; // 上、下、左、右
+        
+        // 境界位置を計算
+        float half = boardSize * grid.cellSize * 0.5f;
+        float y = yOffset + 0.005f;
+        float lineWidth = 0.08f;
+        
+        // 四辺の線を作成
+        Color boundaryColor = new Color(1f, 0.8f, 0.2f, 0.9f); // 黄色
+        
+        // 上辺
+        boundaryLines[0] = CreateBoundaryQuad("Boundary_Top", 
+            new Vector3(0, y, half), 
+            new Vector3(boardSize * grid.cellSize + lineWidth, lineWidth, 1f),
+            boundaryColor);
+        
+        // 下辺
+        boundaryLines[1] = CreateBoundaryQuad("Boundary_Bottom", 
+            new Vector3(0, y, -half), 
+            new Vector3(boardSize * grid.cellSize + lineWidth, lineWidth, 1f),
+            boundaryColor);
+        
+        // 左辺
+        boundaryLines[2] = CreateBoundaryQuad("Boundary_Left", 
+            new Vector3(-half, y, 0), 
+            new Vector3(lineWidth, boardSize * grid.cellSize + lineWidth, 1f),
+            boundaryColor);
+        
+        // 右辺
+        boundaryLines[3] = CreateBoundaryQuad("Boundary_Right", 
+            new Vector3(half, y, 0), 
+            new Vector3(lineWidth, boardSize * grid.cellSize + lineWidth, 1f),
+            boundaryColor);
+    }
+    
+    GameObject CreateBoundaryQuad(string name, Vector3 localPos, Vector3 scale, Color color)
+    {
+        var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = name;
+        quad.transform.SetParent(grid.transform, worldPositionStays:false);
+        Destroy(quad.GetComponent<Collider>());
+        
+        quad.transform.localPosition = localPos;
+        quad.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        quad.transform.localScale = scale;
+        
+        var rend = quad.GetComponent<MeshRenderer>();
+        rend.material = new Material(Shader.Find("Sprites/Default"));
+        rend.material.color = color;
+        
+        return quad;
     }
 
     public void Clear()
     {
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
-            tiles[x,y].SetActive(false);
+        if (tiles == null) return;
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
+            if (tiles[x,y] != null) tiles[x,y].SetActive(false);
     }
 
     /// <summary>
@@ -112,7 +219,7 @@ public class BoardHighlighter : MonoBehaviour
 
     public void ShowCursor(int x, int y)
     {
-        if (x < 0 || x >= 8 || y < 0 || y >= 8) return;
+        if (x < 0 || x >= boardSize || y < 0 || y >= boardSize) return;
 
         currentCursorX = x;
         currentCursorY = y;

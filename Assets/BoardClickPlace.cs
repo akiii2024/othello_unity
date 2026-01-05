@@ -39,8 +39,7 @@ public class BoardClickPlace : MonoBehaviour
         }
 
         // ヘルプ表示中は他の操作を無視
-        bool isHelpVisible = helpPanel != null && helpPanel.helpPanel != null && helpPanel.helpPanel.activeSelf;
-        if (isHelpVisible)
+        if (helpPanel != null && helpPanel.IsVisible)
         {
             return;
         }
@@ -75,8 +74,7 @@ public class BoardClickPlace : MonoBehaviour
     {
         // Hキーの処理はUpdate()で行うため、ここでは処理しない
         // ヘルプが表示されている場合は他の操作を無視（念のため）
-        bool isHelpVisible = helpPanel != null && helpPanel.helpPanel != null && helpPanel.helpPanel.activeSelf;
-        if (isHelpVisible)
+        if (helpPanel != null && helpPanel.IsVisible)
         {
             return;
         }
@@ -126,7 +124,7 @@ public class BoardClickPlace : MonoBehaviour
     void UpdateCursorDisplay()
     {
         // ヘルプ表示中はカーソルを表示しない
-        if (helpPanel != null && helpPanel.helpPanel != null && helpPanel.helpPanel.activeSelf)
+        if (helpPanel != null && helpPanel.IsVisible)
         {
             if (highlighter != null)
             {
@@ -153,9 +151,7 @@ public class BoardClickPlace : MonoBehaviour
 
     void UpdateHighlightVisibility()
     {
-        bool isHelpVisible = helpPanel != null && helpPanel.helpPanel != null && helpPanel.helpPanel.activeSelf;
-        
-        if (isHelpVisible)
+        if (helpPanel != null && helpPanel.IsVisible)
         {
             // ヘルプ表示時はハイライトとカーソルを非表示
             if (highlighter != null)

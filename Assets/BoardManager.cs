@@ -21,6 +21,8 @@ public class BoardManager : MonoBehaviour
     public GameObject piecePrefab;
     public float dropHeight = 2.0f;
     public BoardHighlighter highlighter;
+    public StackWipeDisplay wipeDisplay; // ワイプ表示の参照
+    public GameResultUI resultUI; // ゲーム結果表示UI
 
     [Header("CPU対戦設定")]
     public GameMode gameMode = GameMode.HumanVsHuman;
@@ -28,18 +30,22 @@ public class BoardManager : MonoBehaviour
     public float cpuThinkDelay = 0.5f;  // CPUの思考時間（秒）
     public CPUDifficulty cpuDifficulty = CPUDifficulty.Medium;  // CPUの難易度
 
+    [Header("ボードサイズ設定")]
+    public int boardSize = 8; // 6 or 8
+
     [Header("スタック設定")]
     public int maxStackHeight = 2;  // 最大スタック段数
     public float stackHeightOffset = 0.15f;  // 駒の厚み（2段目のY座標オフセット）
     [Tooltip("重なり防止用の隙間。モデルが埋もれる場合は増やす")]
     public float stackGapEpsilon = 0.01f;
 
-    // スタック対応データ構造
-    int[,] stackCount = new int[8, 8];           // 各マスの駒の段数（0, 1, 2）
-    DiscColor[,] topColor = new DiscColor[8, 8]; // 一番上の駒の色
-    List<PieceView>[,] pieceStacks = new List<PieceView>[8, 8]; // 駒のビュー（複数）
+    // スタック対応データ構造（動的サイズ）
+    int[,] stackCount;
+    DiscColor[,] topColor;
+    List<PieceView>[,] pieceStacks;
 
     public DiscColor turn = DiscColor.Black;
+    public bool isGameOver = false;  // ゲーム終了フラグ
     bool isProcessingMove = false;  // 手を処理中かどうか
     Coroutine syncCoroutine = null; // 同期コルーチンの参照（重複防止用）
     
@@ -57,6 +63,8 @@ public class BoardManager : MonoBehaviour
     {
         // タイトル選択で設定された値を反映してから初期化
         GameSettings.ApplyTo(this);
+        // グリッドのサイズも同期
+        if (grid != null) grid.size = boardSize;
         InitBoard();
     }
 
@@ -74,33 +82,61 @@ public class BoardManager : MonoBehaviour
 
     public void InitBoard()
     {
-        // 既存駒削除
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        // 配列を動的に再割り当て
+        stackCount = new int[boardSize, boardSize];
+        topColor = new DiscColor[boardSize, boardSize];
+        
+        // 既存駒削除（pieceStacksが既に存在する場合）
+        if (pieceStacks != null)
+        {
+            for (int y = 0; y < pieceStacks.GetLength(1); y++)
+            for (int x = 0; x < pieceStacks.GetLength(0); x++)
+            {
+                if (pieceStacks[x, y] != null)
+                {
+                    foreach (var pv in pieceStacks[x, y])
+                    {
+                        if (pv != null) Destroy(pv.gameObject);
+                    }
+                }
+            }
+        }
+        pieceStacks = new List<PieceView>[boardSize, boardSize];
+        
+        // 配列初期化
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             stackCount[x, y] = 0;
             topColor[x, y] = DiscColor.Empty;
-            if (pieceStacks[x, y] != null)
-            {
-                foreach (var pv in pieceStacks[x, y])
-                {
-                    if (pv != null) Destroy(pv.gameObject);
-                }
-            }
             pieceStacks[x, y] = new List<PieceView>();
         }
 
-        // 初期配置（標準の並び）
-        // (3,3) White / (4,4) White
-        // (3,4) Black / (4,3) Black
-        SpawnDiscImmediate(3, 3, DiscColor.White);
-        SpawnDiscImmediate(4, 4, DiscColor.White);
-        SpawnDiscImmediate(3, 4, DiscColor.Black);
-        SpawnDiscImmediate(4, 3, DiscColor.Black);
+        // 初期配置（ボードサイズに応じて中央に配置）
+        int center = boardSize / 2;
+        // (center-1, center-1) White / (center, center) White
+        // (center-1, center) Black / (center, center-1) Black
+        SpawnDiscImmediate(center - 1, center - 1, DiscColor.White);
+        SpawnDiscImmediate(center, center, DiscColor.White);
+        SpawnDiscImmediate(center - 1, center, DiscColor.Black);
+        SpawnDiscImmediate(center, center - 1, DiscColor.Black);
 
         turn = DiscColor.Black;
+        isGameOver = false;
         Debug.Log("Game start. Turn = Black (Stack Othello)");
 
+        // ハイライトタイルをボードサイズに合わせて再構築
+        if (highlighter != null)
+        {
+            highlighter.RebuildTiles();
+        }
+        
+        // ワイプ表示をボードサイズに合わせて再構築
+        if (wipeDisplay != null)
+        {
+            wipeDisplay.RebuildUI();
+        }
+        
         UpdateHighlighter();
     }
 
@@ -150,6 +186,11 @@ public class BoardManager : MonoBehaviour
                 int b = Count(DiscColor.Black);
                 int w = Count(DiscColor.White);
                 Debug.Log($"Game Over! Black={b} White={w} Winner={(b>w?"Black":(w>b?"White":"Draw"))}");
+                isGameOver = true;
+                if (resultUI != null)
+                {
+                    resultUI.ShowResult(b, w);
+                }
             }
         }
         else
@@ -246,8 +287,8 @@ public class BoardManager : MonoBehaviour
 
     bool HasAnyLegalMove(DiscColor color)
     {
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             if (IsLegalMove(x, y, color, out _)) return true;
         }
@@ -257,8 +298,8 @@ public class BoardManager : MonoBehaviour
     List<(int x, int y)> GetLegalMoves(DiscColor color)
     {
         var moves = new List<(int x, int y)>();
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
             if (IsLegalMove(x, y, color, out _))
                 moves.Add((x, y));
         return moves;
@@ -272,8 +313,8 @@ public class BoardManager : MonoBehaviour
         normalMoves = new List<(int x, int y)>();
         stackMoves = new List<(int x, int y)>();
         
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             if (IsLegalMove(x, y, color, out _))
             {
@@ -293,13 +334,13 @@ public class BoardManager : MonoBehaviour
     int Count(DiscColor c)
     {
         int n = 0;
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
             if (topColor[x, y] == c) n += stackCount[x, y];
         return n;
     }
 
-    static bool InBounds(int x, int y) => (0 <= x && x < 8 && 0 <= y && y < 8);
+    bool InBounds(int x, int y) => (0 <= x && x < boardSize && 0 <= y && y < boardSize);
 
     static DiscColor Opponent(DiscColor c) => (c == DiscColor.Black) ? DiscColor.White : DiscColor.Black;
 
@@ -396,8 +437,8 @@ public class BoardManager : MonoBehaviour
         }
 
         // pieceStacksをクリア
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             if (pieceStacks[x, y] != null)
             {
@@ -410,8 +451,8 @@ public class BoardManager : MonoBehaviour
         }
 
         // 内部データ（stackCount/topColor）を基に駒を再生成
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             int count = stackCount[x, y];
             DiscColor color = topColor[x, y];
@@ -616,20 +657,9 @@ public class BoardManager : MonoBehaviour
     {
         int score = 0;
 
-        // 位置の重要度（角や端が高得点）
-        int[,] positionValue = new int[8, 8]
-        {
-            { 100, -20,  10,   5,   5,  10, -20, 100 },
-            { -20, -30,  -5,  -5,  -5,  -5, -30, -20 },
-            {  10,  -5,   1,   1,   1,   1,  -5,  10 },
-            {   5,  -5,   1,   1,   1,   1,  -5,   5 },
-            {   5,  -5,   1,   1,   1,   1,  -5,   5 },
-            {  10,  -5,   1,   1,   1,   1,  -5,  10 },
-            { -20, -30,  -5,  -5,  -5,  -5, -30, -20 },
-            { 100, -20,  10,   5,   5,  10, -20, 100 }
-        };
-
-        score += positionValue[x, y];
+        // 位置の重要度（角や端が高得点）- ボードサイズに応じた評価表
+        int posValue = GetPositionValue(x, y);
+        score += posValue;
 
         // 取れる駒の数を加算（スタックも考慮）
         if (IsLegalMove(x, y, color, out var flips))
@@ -648,7 +678,8 @@ public class BoardManager : MonoBehaviour
         {
             // 自分の駒の上に置く（スタック手）
             // 角にスタックするとより安全なので高ボーナス
-            bool isCorner = (x == 0 || x == 7) && (y == 0 || y == 7);
+            int lastIndex = boardSize - 1;
+            bool isCorner = (x == 0 || x == lastIndex) && (y == 0 || y == lastIndex);
             if (isCorner)
             {
                 score += 50; // 角にスタック = 非常に強固
@@ -661,6 +692,59 @@ public class BoardManager : MonoBehaviour
         }
 
         return score;
+    }
+
+    // ボードサイズに応じた位置評価値を取得
+    int GetPositionValue(int x, int y)
+    {
+        if (boardSize == 4)
+        {
+            // 4×4用の評価表
+            int[,] positionValue4 = new int[4, 4]
+            {
+                { 100, -10, -10, 100 },
+                { -10,   1,   1, -10 },
+                { -10,   1,   1, -10 },
+                { 100, -10, -10, 100 }
+            };
+            if (x >= 0 && x < 4 && y >= 0 && y < 4)
+                return positionValue4[x, y];
+            return 0;
+        }
+        else if (boardSize == 6)
+        {
+            // 6×6用の評価表
+            int[,] positionValue6 = new int[6, 6]
+            {
+                { 100, -20,  10,  10, -20, 100 },
+                { -20, -30,  -5,  -5, -30, -20 },
+                {  10,  -5,   1,   1,  -5,  10 },
+                {  10,  -5,   1,   1,  -5,  10 },
+                { -20, -30,  -5,  -5, -30, -20 },
+                { 100, -20,  10,  10, -20, 100 }
+            };
+            if (x >= 0 && x < 6 && y >= 0 && y < 6)
+                return positionValue6[x, y];
+            return 0;
+        }
+        else
+        {
+            // 8×8用の評価表（デフォルト）
+            int[,] positionValue8 = new int[8, 8]
+            {
+                { 100, -20,  10,   5,   5,  10, -20, 100 },
+                { -20, -30,  -5,  -5,  -5,  -5, -30, -20 },
+                {  10,  -5,   1,   1,   1,   1,  -5,  10 },
+                {   5,  -5,   1,   1,   1,   1,  -5,   5 },
+                {   5,  -5,   1,   1,   1,   1,  -5,   5 },
+                {  10,  -5,   1,   1,   1,   1,  -5,  10 },
+                { -20, -30,  -5,  -5,  -5,  -5, -30, -20 },
+                { 100, -20,  10,   5,   5,  10, -20, 100 }
+            };
+            if (x >= 0 && x < 8 && y >= 0 && y < 8)
+                return positionValue8[x, y];
+            return 0;
+        }
     }
 
     // CPU対戦モードかどうかを確認

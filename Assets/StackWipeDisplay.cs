@@ -32,14 +32,92 @@ public class StackWipeDisplay : MonoBehaviour
     // 内部変数
     Canvas canvas;
     RectTransform[] wipePanels = new RectTransform[2]; // 0:1段目, 1:2段目
-    Image[,] layer1Cells = new Image[8, 8];
-    Image[,] layer2Cells = new Image[8, 8];
+    Image[,] layer1Cells;
+    Image[,] layer2Cells;
     Text[] layerLabels = new Text[2];
     Text[] countLabels = new Text[2]; // 各段の駒数表示
+    int boardSize = 8;
 
     void Start()
     {
-        CreateUI();
+        // BoardManagerからボードサイズを取得
+        if (boardManager != null)
+        {
+            boardSize = boardManager.boardSize;
+        }
+        
+        // RebuildUIを使用して初期構築（BoardManagerからも呼ばれるが、重複は RebuildUI 内で処理される）
+        RebuildUI();
+    }
+
+    /// <summary>
+    /// ボードサイズ変更時にワイプUIを再構築
+    /// </summary>
+    public void RebuildUI()
+    {
+        // BoardManagerからボードサイズを取得
+        if (boardManager != null)
+        {
+            boardSize = boardManager.boardSize;
+        }
+        
+        // 既存のパネルを削除
+        for (int i = 0; i < wipePanels.Length; i++)
+        {
+            if (wipePanels[i] != null)
+            {
+                Destroy(wipePanels[i].gameObject);
+                wipePanels[i] = null;
+            }
+        }
+        
+        // 配列を再割り当て
+        layer1Cells = new Image[boardSize, boardSize];
+        layer2Cells = new Image[boardSize, boardSize];
+        layerLabels = new Text[2];
+        countLabels = new Text[2];
+        
+        // フォントが未設定の場合は初期化
+        if (uiFont == null)
+        {
+            if (customFont != null)
+            {
+                uiFont = customFont;
+            }
+            else
+            {
+                uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                if (uiFont == null)
+                {
+                    uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                }
+            }
+        }
+        
+        // Canvasが存在しない場合は再作成
+        if (canvas == null)
+        {
+            GameObject canvasGO = GameObject.Find("StackWipeCanvas");
+            if (canvasGO != null)
+            {
+                canvas = canvasGO.GetComponent<Canvas>();
+            }
+            
+            if (canvas == null)
+            {
+                canvasGO = new GameObject("StackWipeCanvas");
+                canvas = canvasGO.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 100;
+                canvasGO.AddComponent<CanvasScaler>();
+                canvasGO.AddComponent<GraphicRaycaster>();
+                canvasGO.SetActive(true);
+            }
+        }
+        
+        // 2つのワイプパネルを作成（左中央／右中央）
+        CreateWipePanel(0, true, "1段目", layer1Cells);
+        CreateWipePanel(1, false, "2段目", layer2Cells);
     }
 
     void Update()
@@ -191,12 +269,12 @@ public class StackWipeDisplay : MonoBehaviour
         gridRect.offsetMin = new Vector2(cellPadding, cellPadding);
         gridRect.offsetMax = new Vector2(-cellPadding, -40f); // ラベル分のオフセット
 
-        // 8x8のセルを作成
+        // ボードサイズに応じたセルを作成
         float gridSize = wipeSize - cellPadding * 2;
-        float cellSize = (gridSize - cellPadding * 7) / 8f;
+        float cellSize = (gridSize - cellPadding * (boardSize - 1)) / (float)boardSize;
         
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             var cellGO = new GameObject($"Cell_{x}_{y}");
             cellGO.transform.SetParent(gridGO.transform, false);
@@ -207,8 +285,8 @@ public class StackWipeDisplay : MonoBehaviour
             cellRect.pivot = Vector2.zero;
             
             // x軸方向も反転させて左右を入れ替える
-            float posX = (7 - x) * (cellSize + cellPadding);
-            float posY = (7 - y) * (cellSize + cellPadding); // Y軸反転
+            float posX = (boardSize - 1 - x) * (cellSize + cellPadding);
+            float posY = (boardSize - 1 - y) * (cellSize + cellPadding); // Y軸反転
             cellRect.anchoredPosition = new Vector2(posX, posY);
             cellRect.sizeDelta = new Vector2(cellSize, cellSize);
             
@@ -226,8 +304,8 @@ public class StackWipeDisplay : MonoBehaviour
         int black1 = 0, white1 = 0; // 1段目のカウント
         int black2 = 0, white2 = 0; // 2段目のカウント
 
-        for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+        for (int y = 0; y < boardSize; y++)
+        for (int x = 0; x < boardSize; x++)
         {
             int count = boardManager.GetStackCount(x, y);
             DiscColor color = boardManager.GetTopColor(x, y);
@@ -271,8 +349,8 @@ public class StackWipeDisplay : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.D))
         {
             Debug.Log("=== Wipe Display State ===");
-            for (int dy = 0; dy < 8; dy++)
-            for (int dx = 0; dx < 8; dx++)
+            for (int dy = 0; dy < boardSize; dy++)
+            for (int dx = 0; dx < boardSize; dx++)
             {
                 int c = boardManager.GetStackCount(dx, dy);
                 if (c > 0)

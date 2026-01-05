@@ -17,18 +17,39 @@ public class TitleScreenUI : MonoBehaviour
     bool menuActive = false;
     Font defaultFont;
 
+    // ボタン用スプライト
+    Sprite buttonNormalSprite;
+    Sprite buttonHoverSprite;
+
     // 対戦モード選択用
     GameMode selectedMode = GameMode.HumanVsHuman;
     Text modeDisplayText;
+    RectTransform modeButtonRect;
 
-    static bool created = false; // シーンロードをまたいで一度だけ生成する
+    // AI難易度選択用
+    CPUDifficulty selectedDifficulty = CPUDifficulty.Medium;
+    Text difficultyDisplayText;
+    RectTransform difficultyButtonRect;
+    GameObject difficultyContainer;
+
+    // ボードサイズ選択用
+    int selectedBoardSize = 8;
+    Text boardSizeDisplayText;
+    RectTransform boardSizeButtonRect;
+
+    // スタートボタン用
+    RectTransform startButtonRect;
+
+    public static bool created = false; // シーンロードをまたいで一度だけ生成する（外部からリセット可能）
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void CreateMenuOnLoad()
     {
+        Debug.Log($"[TitleScreenUI] CreateMenuOnLoad called. created={created}");
         if (created) return;
         var go = new GameObject("TitleScreenUI");
         go.AddComponent<TitleScreenUI>();
+        Debug.Log("[TitleScreenUI] New TitleScreenUI instance created");
     }
 
     void Awake()
@@ -54,6 +75,7 @@ public class TitleScreenUI : MonoBehaviour
     void BuildUI()
     {
         EnsureEventSystem();
+        LoadButtonSprites();
 
         var canvasGO = new GameObject("TitleCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasGO.transform.SetParent(transform, false);
@@ -91,21 +113,67 @@ public class TitleScreenUI : MonoBehaviour
 
         var layout = content.GetComponent<VerticalLayoutGroup>();
         layout.childAlignment = TextAnchor.MiddleCenter;
-        layout.spacing = 14f;
-        layout.padding = new RectOffset(24, 24, 24, 24);
+        layout.spacing = 20f;
+        layout.padding = new RectOffset(32, 32, 40, 40);
 
         var fitter = content.GetComponent<ContentSizeFitter>();
         fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        CreateText(content.transform, titleText, 48, FontStyle.Bold, new Vector2(0f, 20f));
-        CreateText(content.transform, subtitleText, 24, FontStyle.Normal);
+        // タイトル
+        CreateText(content.transform, titleText, 52, FontStyle.Bold);
+        
+        // スペーサー
+        CreateSpacer(content.transform, 10f);
+        
+        CreateText(content.transform, subtitleText, 22, FontStyle.Normal);
 
-        // 対戦モード選択（表示のみ、クリックはUpdateで検出）
-        modeDisplayText = CreateModeButton(content.transform, GetModeDisplayString(), 28, FontStyle.Bold);
+        // スペーサー
+        CreateSpacer(content.transform, 15f);
+
+        // 対戦モード選択
+        var modeResult = CreateOptionButton(content.transform, GetModeDisplayString(), 26, FontStyle.Bold, new Color(0.2f, 0.4f, 0.6f, 0.9f), () => ToggleMode());
+        modeDisplayText = modeResult.text;
+        modeButtonRect = modeResult.rect;
+
+        // AI難易度選択（AI対戦時のみ表示）
+        difficultyContainer = new GameObject("DifficultyContainer", typeof(RectTransform), typeof(VerticalLayoutGroup));
+        var diffRect = difficultyContainer.GetComponent<RectTransform>();
+        diffRect.SetParent(content.transform, false);
+        diffRect.sizeDelta = new Vector2(520f, 0f);
+        var diffLayout = difficultyContainer.GetComponent<VerticalLayoutGroup>();
+        diffLayout.childAlignment = TextAnchor.MiddleCenter;
+        diffLayout.spacing = 10f;
+
+        CreateText(difficultyContainer.transform, "AI難易度", 18, FontStyle.Normal);
+        var diffResult = CreateOptionButton(difficultyContainer.transform, GetDifficultyDisplayString(), 22, FontStyle.Bold, new Color(0.4f, 0.3f, 0.5f, 0.9f), () => CycleDifficulty(1));
+        difficultyDisplayText = diffResult.text;
+        difficultyButtonRect = diffResult.rect;
+
+        // 難易度表示の初期状態を設定
+        UpdateDifficultyVisibility();
+
+        // スペーサー
+        CreateSpacer(content.transform, 10f);
+
+        // ボードサイズ選択
+        var boardSizeResult = CreateOptionButton(content.transform, GetBoardSizeDisplayString(), 22, FontStyle.Bold, new Color(0.5f, 0.4f, 0.3f, 0.9f), () => ToggleBoardSize());
+        boardSizeDisplayText = boardSizeResult.text;
+        boardSizeButtonRect = boardSizeResult.rect;
+
+        // スペーサー
+        CreateSpacer(content.transform, 20f);
+
+        // スタートボタン
+        startButtonRect = CreateStartButton(content.transform, "ゲームスタート", 26, FontStyle.Bold, () => StartGame(selectedMode));
+
+        // スペーサー
+        CreateSpacer(content.transform, 15f);
 
         // 使い方テキスト
-        CreateText(content.transform, "画面クリック or 矢印キー/Tabでモード切り替え", 16, FontStyle.Italic);
-        CreateText(content.transform, "Enter/Spaceでゲーム開始 / Hキーでヘルプ", 16, FontStyle.Italic);
+        CreateText(content.transform, "マウスでクリックしづらい場合はキーで操作してください。", 14, FontStyle.Italic);
+        CreateText(content.transform, "左右キー: モード切替 / 上下キー: 難易度切替 / Bキー: ボードサイズ", 14, FontStyle.Italic);
+        CreateText(content.transform, "Enterキー / Spaceキー: ゲームスタート", 14, FontStyle.Italic);
+        CreateText(content.transform, "Hキーでヘルプ", 14, FontStyle.Italic);
     }
 
     void Update()
@@ -120,38 +188,43 @@ public class TitleScreenUI : MonoBehaviour
             return;
         }
 
-        // キーボードでモード切り替え（矢印キー、Tab、左右）
+        // 左右キー/Tabでモード切り替え
         if (Input.GetKeyDown(KeyCode.Tab) || 
             Input.GetKeyDown(KeyCode.LeftArrow) || 
-            Input.GetKeyDown(KeyCode.RightArrow) ||
-            Input.GetKeyDown(KeyCode.UpArrow) || 
-            Input.GetKeyDown(KeyCode.DownArrow))
+            Input.GetKeyDown(KeyCode.RightArrow))
         {
             ToggleMode();
         }
 
-        // マウスクリックでモード切り替え（画面中央付近のクリック）
-        if (Input.GetMouseButtonDown(0))
+        // 上下キーで難易度切り替え（AI対戦時のみ）
+        if (selectedMode == GameMode.HumanVsCPU)
         {
-            // 画面中央付近（上下30%〜70%の範囲）のクリックでモード切り替え
-            float normalizedY = Input.mousePosition.y / Screen.height;
-            if (normalizedY > 0.3f && normalizedY < 0.7f)
+            if (Input.GetKeyDown(KeyCode.UpArrow))
             {
-                ToggleMode();
+                CycleDifficulty(-1);
             }
+            else if (Input.GetKeyDown(KeyCode.DownArrow))
+            {
+                CycleDifficulty(1);
+            }
+        }
+
+        // Bキーでボードサイズ切り替え
+        if (Input.GetKeyDown(KeyCode.B))
+        {
+            ToggleBoardSize();
         }
 
         // Enter/Spaceでゲーム開始
         if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))
         {
-            Debug.Log($"[TitleScreenUI] Enter/Space pressed. selectedMode = {selectedMode}");
+            Debug.Log($"[TitleScreenUI] Starting game: mode={selectedMode}, difficulty={selectedDifficulty}, boardSize={selectedBoardSize}");
             StartGame(selectedMode);
         }
     }
 
     void ToggleMode()
     {
-        Debug.Log($"[TitleScreenUI] ToggleMode called. Current mode: {selectedMode}");
         // 2人対戦 ↔ AI対戦 の切り替え
         if (selectedMode == GameMode.HumanVsHuman)
         {
@@ -161,19 +234,43 @@ public class TitleScreenUI : MonoBehaviour
         {
             selectedMode = GameMode.HumanVsHuman;
         }
-        Debug.Log($"[TitleScreenUI] Mode changed to: {selectedMode}");
         UpdateModeDisplay();
+        UpdateDifficultyVisibility();
+    }
+
+    void CycleDifficulty(int direction)
+    {
+        int current = (int)selectedDifficulty;
+        int count = System.Enum.GetValues(typeof(CPUDifficulty)).Length;
+        current = (current + direction + count) % count;
+        selectedDifficulty = (CPUDifficulty)current;
+        UpdateDifficultyDisplay();
     }
 
     string GetModeDisplayString()
     {
         if (selectedMode == GameMode.HumanVsHuman)
         {
-            return "【 2人対戦 】";
+            return "◀  2人対戦  ▶";
         }
         else
         {
-            return "【 AI対戦 】";
+            return "◀  AI対戦  ▶";
+        }
+    }
+
+    string GetDifficultyDisplayString()
+    {
+        switch (selectedDifficulty)
+        {
+            case CPUDifficulty.Easy:
+                return "▲ 簡単 ▼";
+            case CPUDifficulty.Medium:
+                return "▲ 普通 ▼";
+            case CPUDifficulty.Hard:
+                return "▲ 難しい ▼";
+            default:
+                return "▲ 普通 ▼";
         }
     }
 
@@ -185,6 +282,47 @@ public class TitleScreenUI : MonoBehaviour
         }
     }
 
+    void UpdateDifficultyDisplay()
+    {
+        if (difficultyDisplayText != null)
+        {
+            difficultyDisplayText.text = GetDifficultyDisplayString();
+        }
+    }
+
+    void UpdateDifficultyVisibility()
+    {
+        if (difficultyContainer != null)
+        {
+            difficultyContainer.SetActive(selectedMode == GameMode.HumanVsCPU);
+        }
+    }
+
+    void ToggleBoardSize()
+    {
+        // 8 -> 6 -> 4 -> 8 の循環切り替え
+        if (selectedBoardSize == 8)
+            selectedBoardSize = 6;
+        else if (selectedBoardSize == 6)
+            selectedBoardSize = 4;
+        else
+            selectedBoardSize = 8;
+        UpdateBoardSizeDisplay();
+    }
+
+    string GetBoardSizeDisplayString()
+    {
+        return $"◀  {selectedBoardSize}×{selectedBoardSize}  ▶";
+    }
+
+    void UpdateBoardSizeDisplay()
+    {
+        if (boardSizeDisplayText != null)
+        {
+            boardSizeDisplayText.text = GetBoardSizeDisplayString();
+        }
+    }
+
     void PauseGame(bool pause)
     {
         Time.timeScale = pause ? 0f : originalTimeScale;
@@ -193,9 +331,9 @@ public class TitleScreenUI : MonoBehaviour
     void StartGame(GameMode mode)
     {
         GameSettings.GameMode = mode;
-        // AI対戦の場合はデフォルト設定を使用
         GameSettings.CpuColor = DiscColor.White;
-        GameSettings.CpuDifficulty = CPUDifficulty.Medium;
+        GameSettings.CpuDifficulty = selectedDifficulty;
+        GameSettings.BoardSize = selectedBoardSize;
 
         var manager = FindFirstObjectByType<BoardManager>();
         if (manager != null)
@@ -203,9 +341,17 @@ public class TitleScreenUI : MonoBehaviour
             // 直接プロパティを設定（確実に反映されるように）
             manager.gameMode = mode;
             manager.cpuColor = DiscColor.White;
-            manager.cpuDifficulty = CPUDifficulty.Medium;
+            manager.cpuDifficulty = selectedDifficulty;
+            manager.boardSize = selectedBoardSize;
+            
+            // グリッドのサイズも同期
+            if (manager.grid != null)
+            {
+                manager.grid.size = selectedBoardSize;
+            }
+            
             manager.InitBoard();
-            Debug.Log($"[TitleScreenUI] Game started with mode: {mode}");
+            Debug.Log($"[TitleScreenUI] Game started with mode: {mode}, difficulty: {selectedDifficulty}, boardSize: {selectedBoardSize}");
         }
         else
         {
@@ -223,7 +369,7 @@ public class TitleScreenUI : MonoBehaviour
         menuActive = false;
     }
 
-    void ShowMenu()
+    public void ShowMenu()
     {
         // 既にキャンバスがなければ再生成
         if (canvas == null)
@@ -244,17 +390,28 @@ public class TitleScreenUI : MonoBehaviour
         es.transform.SetParent(transform, false);
     }
 
-    Text CreateText(Transform parent, string text, int size, FontStyle style, Vector2? extraPadding = null)
+    void LoadButtonSprites()
+    {
+        // Resourcesフォルダからテクスチャを読み込んでスプライトを作成
+        var normalTex = Resources.Load<Texture2D>("button_normal");
+        var hoverTex = Resources.Load<Texture2D>("button_hover");
+
+        if (normalTex != null)
+        {
+            buttonNormalSprite = Sprite.Create(normalTex, new Rect(0, 0, normalTex.width, normalTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(30, 30, 30, 30));
+        }
+        if (hoverTex != null)
+        {
+            buttonHoverSprite = Sprite.Create(hoverTex, new Rect(0, 0, hoverTex.width, hoverTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(30, 30, 30, 30));
+        }
+    }
+
+    Text CreateText(Transform parent, string text, int size, FontStyle style)
     {
         var go = new GameObject("Text", typeof(Text));
         var rect = go.GetComponent<RectTransform>();
         rect.SetParent(parent, false);
         rect.sizeDelta = new Vector2(520f, 0f);
-
-        if (extraPadding.HasValue)
-        {
-            rect.anchoredPosition = extraPadding.Value;
-        }
 
         var uiText = go.GetComponent<Text>();
         uiText.text = text;
@@ -269,20 +426,63 @@ public class TitleScreenUI : MonoBehaviour
         return uiText;
     }
 
-    Text CreateModeButton(Transform parent, string text, int size, FontStyle style)
+    void CreateSpacer(Transform parent, float height)
     {
-        // 背景用のImageを持つ親オブジェクトを作成
-        var go = new GameObject("ModeButton", typeof(RectTransform), typeof(Image));
+        var go = new GameObject("Spacer", typeof(RectTransform), typeof(LayoutElement));
+        var rect = go.GetComponent<RectTransform>();
+        rect.SetParent(parent, false);
+        
+        var layoutElement = go.GetComponent<LayoutElement>();
+        layoutElement.minHeight = height;
+        layoutElement.preferredHeight = height;
+    }
+
+    (Text text, RectTransform rect) CreateOptionButton(Transform parent, string text, int size, FontStyle style, Color tintColor, System.Action onClick)
+    {
+        // 背景用のImageを持つ親オブジェクトを作成（Buttonコンポーネント追加）
+        var go = new GameObject("OptionButton", typeof(RectTransform), typeof(Image), typeof(Button));
         var buttonRect = go.GetComponent<RectTransform>();
         buttonRect.SetParent(parent, false);
-        buttonRect.sizeDelta = new Vector2(300f, 60f);
+        buttonRect.sizeDelta = new Vector2(320f, 55f);
 
-        // 背景
+        // 背景（スプライト使用）
         var bgImage = go.GetComponent<Image>();
-        bgImage.color = new Color(0.2f, 0.4f, 0.6f, 0.8f);
+        if (buttonNormalSprite != null)
+        {
+            bgImage.sprite = buttonNormalSprite;
+            bgImage.type = Image.Type.Sliced;
+            bgImage.color = tintColor;
+        }
+        else
+        {
+            bgImage.color = tintColor;
+        }
 
-        // テキストを子オブジェクトとして作成
-        var textGO = new GameObject("Text", typeof(Text));
+        // Buttonコンポーネントの設定
+        var btn = go.GetComponent<Button>();
+        if (buttonNormalSprite != null && buttonHoverSprite != null)
+        {
+            // スプライトスワップモード
+            btn.transition = Selectable.Transition.SpriteSwap;
+            var spriteState = new SpriteState();
+            spriteState.highlightedSprite = buttonHoverSprite;
+            spriteState.pressedSprite = buttonHoverSprite;
+            spriteState.selectedSprite = buttonNormalSprite;
+            btn.spriteState = spriteState;
+        }
+        else
+        {
+            // フォールバック：色変更モード
+            var colors = btn.colors;
+            colors.normalColor = tintColor;
+            colors.highlightedColor = new Color(tintColor.r + 0.15f, tintColor.g + 0.15f, tintColor.b + 0.15f, tintColor.a);
+            colors.pressedColor = new Color(tintColor.r + 0.25f, tintColor.g + 0.25f, tintColor.b + 0.25f, tintColor.a);
+            btn.colors = colors;
+        }
+        btn.onClick.AddListener(() => onClick());
+
+        // テキストを子オブジェクトとして作成（影付き）
+        var textGO = new GameObject("Text", typeof(Text), typeof(Shadow));
         var textRect = textGO.GetComponent<RectTransform>();
         textRect.SetParent(go.transform, false);
         textRect.anchorMin = Vector2.zero;
@@ -300,6 +500,88 @@ public class TitleScreenUI : MonoBehaviour
         uiText.horizontalOverflow = HorizontalWrapMode.Wrap;
         uiText.verticalOverflow = VerticalWrapMode.Overflow;
 
-        return uiText;
+        // テキストに影を追加
+        var shadow = textGO.GetComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.5f);
+        shadow.effectDistance = new Vector2(2f, -2f);
+
+        return (uiText, buttonRect);
+    }
+
+    RectTransform CreateStartButton(Transform parent, string text, int size, FontStyle style, System.Action onClick)
+    {
+        // スタートボタン用のオブジェクトを作成（Buttonコンポーネント追加）
+        var go = new GameObject("StartButton", typeof(RectTransform), typeof(Image), typeof(Button));
+        var buttonRect = go.GetComponent<RectTransform>();
+        buttonRect.SetParent(parent, false);
+        buttonRect.sizeDelta = new Vector2(320f, 65f);
+
+        // 背景（緑系の目立つ色 + スプライト）
+        Color tintColor = new Color(0.3f, 0.75f, 0.4f, 1f);
+        var bgImage = go.GetComponent<Image>();
+        if (buttonNormalSprite != null)
+        {
+            bgImage.sprite = buttonNormalSprite;
+            bgImage.type = Image.Type.Sliced;
+            bgImage.color = tintColor;
+        }
+        else
+        {
+            bgImage.color = tintColor;
+        }
+
+        // Buttonコンポーネントの設定
+        var btn = go.GetComponent<Button>();
+        if (buttonNormalSprite != null && buttonHoverSprite != null)
+        {
+            // スプライトスワップモード
+            btn.transition = Selectable.Transition.SpriteSwap;
+            var spriteState = new SpriteState();
+            spriteState.highlightedSprite = buttonHoverSprite;
+            spriteState.pressedSprite = buttonHoverSprite;
+            spriteState.selectedSprite = buttonNormalSprite;
+            btn.spriteState = spriteState;
+        }
+        else
+        {
+            // フォールバック：色変更モード
+            var colors = btn.colors;
+            colors.normalColor = tintColor;
+            colors.highlightedColor = new Color(0.35f, 0.85f, 0.45f, 1f);
+            colors.pressedColor = new Color(0.4f, 0.95f, 0.5f, 1f);
+            btn.colors = colors;
+        }
+        btn.onClick.AddListener(() => onClick());
+
+        // テキストを子オブジェクトとして作成（影付き）
+        var textGO = new GameObject("Text", typeof(Text), typeof(Shadow), typeof(Outline));
+        var textRect = textGO.GetComponent<RectTransform>();
+        textRect.SetParent(go.transform, false);
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+
+        var uiText = textGO.GetComponent<Text>();
+        uiText.text = text;
+        uiText.fontSize = size;
+        uiText.fontStyle = style;
+        uiText.color = Color.white;
+        uiText.font = defaultFont;
+        uiText.alignment = TextAnchor.MiddleCenter;
+        uiText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        uiText.verticalOverflow = VerticalWrapMode.Overflow;
+
+        // テキストに影を追加
+        var shadow = textGO.GetComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.6f);
+        shadow.effectDistance = new Vector2(2f, -2f);
+
+        // テキストにアウトラインを追加（より目立つように）
+        var outline = textGO.GetComponent<Outline>();
+        outline.effectColor = new Color(0f, 0.3f, 0.1f, 0.8f);
+        outline.effectDistance = new Vector2(1f, -1f);
+
+        return buttonRect;
     }
 }
