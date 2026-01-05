@@ -59,12 +59,28 @@ public class BoardManager : MonoBehaviour
         (-1, 1),(0, 1),(1, 1),
     };
 
+    [Header("サウンド設定")]
+    public AudioClip putSound;
+    AudioSource audioSource;
+
     void Start()
     {
         // タイトル選択で設定された値を反映してから初期化
         GameSettings.ApplyTo(this);
         // グリッドのサイズも同期
         if (grid != null) grid.size = boardSize;
+
+        // オーディオ初期化
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+        }
+        if (putSound == null)
+        {
+            putSound = Resources.Load<AudioClip>("put");
+        }
+
         InitBoard();
     }
 
@@ -536,6 +552,12 @@ public class BoardManager : MonoBehaviour
             rb.isKinematic = false;
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
+        }
+
+        // 音を鳴らす
+        if (audioSource != null && putSound != null)
+        {
+            audioSource.PlayOneShot(putSound);
         }
     }
 

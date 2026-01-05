@@ -238,7 +238,21 @@ public class HelpPanel : MonoBehaviour
         uiText.fontSize = size;
         uiText.fontStyle = style;
         uiText.color = Color.white;
-        uiText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        
+        // Resourcesフォルダから日本語フォントを読み込む（優先順位順）
+        Font japaneseFont = Resources.Load<Font>("NotoSansJP") ?? 
+                           Resources.Load<Font>("Meiryo") ?? 
+                           Resources.Load<Font>("YuGothic") ??
+                           Resources.Load<Font>("MS Gothic") ??
+                           Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        
+        if (japaneseFont == null)
+        {
+            Debug.LogWarning("[HelpPanel] 日本語フォントが見つかりません。Resourcesフォルダに日本語フォント（NotoSansJP、Meiryo等）を追加してください。");
+            japaneseFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        }
+        
+        uiText.font = japaneseFont;
         uiText.alignment = TextAnchor.MiddleCenter;
         uiText.horizontalOverflow = HorizontalWrapMode.Wrap;
         uiText.verticalOverflow = VerticalWrapMode.Overflow;

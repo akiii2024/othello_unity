@@ -134,10 +134,16 @@ public class StackWipeDisplay : MonoBehaviour
         }
         else
         {
-            // Unityの組み込みフォントを取得
-            uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            // Resourcesフォルダから日本語フォントを読み込む（優先順位順）
+            uiFont = Resources.Load<Font>("NotoSansJP") ?? 
+                    Resources.Load<Font>("Meiryo") ?? 
+                    Resources.Load<Font>("YuGothic") ??
+                    Resources.Load<Font>("MS Gothic") ??
+                    Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            
             if (uiFont == null)
             {
+                Debug.LogWarning("[StackWipeDisplay] 日本語フォントが見つかりません。Resourcesフォルダに日本語フォント（NotoSansJP、Meiryo等）を追加してください。");
                 uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
             }
         }

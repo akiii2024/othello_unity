@@ -40,6 +40,11 @@ public class TitleScreenUI : MonoBehaviour
     // スタートボタン用
     RectTransform startButtonRect;
 
+    // オーディオ
+    AudioSource audioSource;
+    AudioClip selectSound;
+    AudioClip okSound;
+
     public static bool created = false; // シーンロードをまたいで一度だけ生成する（外部からリセット可能）
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -76,6 +81,7 @@ public class TitleScreenUI : MonoBehaviour
     {
         EnsureEventSystem();
         LoadButtonSprites();
+        LoadAudioResources();
 
         var canvasGO = new GameObject("TitleCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasGO.transform.SetParent(transform, false);
@@ -85,8 +91,26 @@ public class TitleScreenUI : MonoBehaviour
         canvas.sortingOrder = 1000; // 他UIより前面に出す
         canvas.pixelPerfect = true;
 
-        // フォントを確実にセット（未指定ならLegacyRuntime）
-        defaultFont = overrideFont != null ? overrideFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        // フォントを確実にセット（未指定ならResourcesから日本語フォントを読み込む）
+        if (overrideFont != null)
+        {
+            defaultFont = overrideFont;
+        }
+        else
+        {
+            // Resourcesフォルダから日本語フォントを読み込む（優先順位順）
+            defaultFont = Resources.Load<Font>("NotoSansJP") ?? 
+                         Resources.Load<Font>("Meiryo") ?? 
+                         Resources.Load<Font>("YuGothic") ??
+                         Resources.Load<Font>("MS Gothic") ??
+                         Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            
+            if (defaultFont == null)
+            {
+                Debug.LogWarning("[TitleScreenUI] 日本語フォントが見つかりません。Resourcesフォルダに日本語フォント（NotoSansJP、Meiryo等）を追加してください。");
+                defaultFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            }
+        }
 
         var scaler = canvasGO.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -236,6 +260,7 @@ public class TitleScreenUI : MonoBehaviour
         }
         UpdateModeDisplay();
         UpdateDifficultyVisibility();
+        PlaySelectSound();
     }
 
     void CycleDifficulty(int direction)
@@ -245,6 +270,7 @@ public class TitleScreenUI : MonoBehaviour
         current = (current + direction + count) % count;
         selectedDifficulty = (CPUDifficulty)current;
         UpdateDifficultyDisplay();
+        PlaySelectSound();
     }
 
     string GetModeDisplayString()
@@ -308,6 +334,7 @@ public class TitleScreenUI : MonoBehaviour
         else
             selectedBoardSize = 8;
         UpdateBoardSizeDisplay();
+        PlaySelectSound();
     }
 
     string GetBoardSizeDisplayString()
@@ -330,6 +357,12 @@ public class TitleScreenUI : MonoBehaviour
 
     void StartGame(GameMode mode)
     {
+        // 直ちにサウンド再生（PlayClipAtPointではなくAudioSourceを使う）
+        if (okSound != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(okSound);
+        }
+
         GameSettings.GameMode = mode;
         GameSettings.CpuColor = DiscColor.White;
         GameSettings.CpuDifficulty = selectedDifficulty;
@@ -361,12 +394,24 @@ public class TitleScreenUI : MonoBehaviour
         PauseGame(false);
         GameSettings.IsTitleScreenActive = false;
 
+        // UIを非表示にしてから、音が鳴り終わるまで待ってDestroyする
         if (canvas != null)
         {
-            Destroy(canvas.gameObject);
+            canvas.gameObject.SetActive(false); // キャンバスごと非表示
         }
-        Destroy(gameObject);
+        
+        // メニュー操作を受け付けないようにフラグを下げる
         menuActive = false;
+
+        // 音の長さ分待ってから破壊
+        float delay = (okSound != null) ? okSound.length : 0f;
+        StartCoroutine(DestroyAfterDelay(delay));
+    }
+
+    System.Collections.IEnumerator DestroyAfterDelay(float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay); // Time.timeScaleの影響を受けないようにRealtime推奨だが、PauseGame(false)してるのでどちらでも可
+        Destroy(gameObject);
     }
 
     public void ShowMenu()
@@ -403,6 +448,27 @@ public class TitleScreenUI : MonoBehaviour
         if (hoverTex != null)
         {
             buttonHoverSprite = Sprite.Create(hoverTex, new Rect(0, 0, hoverTex.width, hoverTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(30, 30, 30, 30));
+        }
+    }
+
+    void LoadAudioResources()
+    {
+        audioSource = gameObject.GetComponent<AudioSource>();
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.playOnAwake = false;
+        }
+
+        selectSound = Resources.Load<AudioClip>("select");
+        okSound = Resources.Load<AudioClip>("ok");
+    }
+
+    void PlaySelectSound()
+    {
+        if (audioSource != null && selectSound != null)
+        {
+            audioSource.PlayOneShot(selectSound);
         }
     }
 

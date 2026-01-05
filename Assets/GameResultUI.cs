@@ -26,6 +26,11 @@ public class GameResultUI : MonoBehaviour
     public Color buttonColor = new Color(0.2f, 0.5f, 0.8f, 1f);
     public Color buttonTextColor = Color.white;
 
+    [Header("サウンド設定")]
+    public AudioClip winSound;
+    public AudioClip loseSound;
+    AudioSource audioSource;
+
     Font uiFont;
     Canvas canvas;
     GameObject overlayPanel;
@@ -51,11 +56,29 @@ public class GameResultUI : MonoBehaviour
         }
         else
         {
-            uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            // Resourcesフォルダから日本語フォントを読み込む（優先順位順）
+            uiFont = Resources.Load<Font>("NotoSansJP") ?? 
+                    Resources.Load<Font>("Meiryo") ?? 
+                    Resources.Load<Font>("YuGothic") ??
+                    Resources.Load<Font>("MS Gothic") ??
+                    Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            
             if (uiFont == null)
             {
+                Debug.LogWarning("[GameResultUI] 日本語フォントが見つかりません。Resourcesフォルダに日本語フォント（NotoSansJP、Meiryo等）を追加してください。");
                 uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
             }
+        }
+
+        // サウンドの設定
+        audioSource = gameObject.AddComponent<AudioSource>();
+        if (winSound == null)
+        {
+            winSound = Resources.Load<AudioClip>("you_win");
+        }
+        if (loseSound == null)
+        {
+            loseSound = Resources.Load<AudioClip>("you_lose");
         }
 
         CreateUI();
@@ -232,6 +255,41 @@ public class GameResultUI : MonoBehaviour
 
         resultText.text = resultMessage;
         scoreText.text = $"黒: {blackCount}  白: {whiteCount}";
+
+        // 音声再生
+        if (audioSource != null)
+        {
+            AudioClip clipToPlay = null;
+            
+            // 引き分けの場合は音を鳴らさない（必要ならdrawSoundを追加）
+            if (blackCount != whiteCount)
+            {
+                DiscColor winnerColor = (blackCount > whiteCount) ? DiscColor.Black : DiscColor.White;
+
+                if (boardManager.gameMode == GameMode.HumanVsCPU)
+                {
+                    // CPU対戦の場合
+                    if (winnerColor == boardManager.cpuColor)
+                    {
+                        clipToPlay = loseSound; // CPUの勝ち＝プレイヤーの負け
+                    }
+                    else
+                    {
+                        clipToPlay = winSound;  // プレイヤーの勝ち
+                    }
+                }
+                else
+                {
+                    // 対人戦の場合は常に勝ち音（勝った方を称える）
+                    clipToPlay = winSound;
+                }
+            }
+
+            if (clipToPlay != null)
+            {
+                audioSource.PlayOneShot(clipToPlay);
+            }
+        }
     }
 
     /// <summary>
