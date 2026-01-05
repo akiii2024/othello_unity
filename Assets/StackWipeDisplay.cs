@@ -14,6 +14,10 @@ public class StackWipeDisplay : MonoBehaviour
     public float wipeSize = 150f;           // ワイプのサイズ（ピクセル）
     public float margin = 20f;              // 画面端からのマージン
     public float cellPadding = 2f;          // セル間のパディング
+    public float verticalOffset = 0f;       // 上下オフセット（中央基準）
+    public bool useCustomPositions = false; // 個別座標を使用するか
+    public Vector3 layer1Position = new Vector3(20f, 0f, 0f);   // 1段目パネルのx,y,z（Screen Space Overlayでもzを保持）
+    public Vector3 layer2Position = new Vector3(-20f, 0f, 0f);  // 2段目パネルのx,y,z
     
     [Header("色設定")]
     public Color blackColor = Color.black;
@@ -60,34 +64,76 @@ public class StackWipeDisplay : MonoBehaviour
             }
         }
 
-        // Canvas作成（既存があれば使用）
-        canvas = FindObjectOfType<Canvas>();
+        // 専用Canvasを作成（既存のStackWipeCanvasを探して再利用、なければ作成）
+        GameObject canvasGO = GameObject.Find("StackWipeCanvas");
+        if (canvasGO != null)
+        {
+            canvas = canvasGO.GetComponent<Canvas>();
+        }
+        
         if (canvas == null)
         {
-            var canvasGO = new GameObject("StackWipeCanvas");
+            // 既存のStackWipeCanvasがない場合、新規作成
+            canvasGO = new GameObject("StackWipeCanvas");
             canvas = canvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 100;
             canvasGO.AddComponent<CanvasScaler>();
             canvasGO.AddComponent<GraphicRaycaster>();
+            // Canvasは常にアクティブに保つ
+            canvasGO.SetActive(true);
+        }
+        else
+        {
+            // 既存のCanvasがある場合、アクティブに保つ
+            canvasGO.SetActive(true);
         }
 
-        // 2つのワイプパネルを作成（左下と右下）
-        CreateWipePanel(0, new Vector2(margin, margin), "1段目", layer1Cells);
-        CreateWipePanel(1, new Vector2(Screen.width - wipeSize - margin, margin), "2段目", layer2Cells);
+        // 2つのワイプパネルを作成（左中央／右中央）
+        CreateWipePanel(0, true, "1段目", layer1Cells);
+        CreateWipePanel(1, false, "2段目", layer2Cells);
     }
 
-    void CreateWipePanel(int index, Vector2 position, string labelText, Image[,] cells)
+    void CreateWipePanel(int index, bool isLeft, string labelText, Image[,] cells)
     {
         // パネル作成
         var panelGO = new GameObject($"WipePanel_{index}");
         panelGO.transform.SetParent(canvas.transform, false);
         
         var panelRect = panelGO.AddComponent<RectTransform>();
-        panelRect.anchorMin = Vector2.zero;
-        panelRect.anchorMax = Vector2.zero;
-        panelRect.pivot = Vector2.zero;
-        panelRect.anchoredPosition = position;
+        // 画面左右中央に固定
+        Vector2 anchoredPos;
+        float posZ = 0f;
+
+        if (useCustomPositions)
+        {
+            // 個別指定座標を利用
+            var p = isLeft ? layer1Position : layer2Position;
+            anchoredPos = new Vector2(p.x, p.y);
+            posZ = p.z;
+        }
+        else
+        {
+            // デフォルト: 左右中央＋マージン／垂直オフセット
+            if (isLeft)
+            {
+                anchoredPos = new Vector2(margin, verticalOffset);
+                panelRect.anchorMin = new Vector2(0f, 0.5f);
+                panelRect.anchorMax = new Vector2(0f, 0.5f);
+                panelRect.pivot = new Vector2(0f, 0.5f);
+            }
+            else
+            {
+                anchoredPos = new Vector2(-margin, verticalOffset);
+                panelRect.anchorMin = new Vector2(1f, 0.5f);
+                panelRect.anchorMax = new Vector2(1f, 0.5f);
+                panelRect.pivot = new Vector2(1f, 0.5f);
+            }
+        }
+
+        // 位置適用（Overlayでもzは保持されますが見た目にはほぼ影響なし）
+        panelRect.anchoredPosition = anchoredPos;
+        panelRect.localPosition = new Vector3(anchoredPos.x, anchoredPos.y, posZ);
         panelRect.sizeDelta = new Vector2(wipeSize, wipeSize + 40f); // ラベル分の高さを追加
         
         // 背景
@@ -160,7 +206,8 @@ public class StackWipeDisplay : MonoBehaviour
             cellRect.anchorMax = Vector2.zero;
             cellRect.pivot = Vector2.zero;
             
-            float posX = x * (cellSize + cellPadding);
+            // x軸方向も反転させて左右を入れ替える
+            float posX = (7 - x) * (cellSize + cellPadding);
             float posY = (7 - y) * (cellSize + cellPadding); // Y軸反転
             cellRect.anchoredPosition = new Vector2(posX, posY);
             cellRect.sizeDelta = new Vector2(cellSize, cellSize);
@@ -219,6 +266,24 @@ public class StackWipeDisplay : MonoBehaviour
         {
             countLabels[1].text = $"<color=#333333>●</color>{black2}  <color=#ffffff>○</color>{white2}";
         }
+
+        // デバッグ: 各セルの状態をログ出力（毎フレームは多すぎるのでキー押下時のみ）
+        if (Input.GetKeyDown(KeyCode.D))
+        {
+            Debug.Log("=== Wipe Display State ===");
+            for (int dy = 0; dy < 8; dy++)
+            for (int dx = 0; dx < 8; dx++)
+            {
+                int c = boardManager.GetStackCount(dx, dy);
+                if (c > 0)
+                {
+                    DiscColor col = boardManager.GetTopColor(dx, dy);
+                    Debug.Log($"  ({dx},{dy}): count={c}, topColor={col}");
+                }
+            }
+            Debug.Log($"Layer1: Black={black1}, White={white1}");
+            Debug.Log($"Layer2: Black={black2}, White={white2}");
+        }
     }
 
     // Inspector から BoardManager をアタッチできない場合の自動検索
@@ -226,7 +291,7 @@ public class StackWipeDisplay : MonoBehaviour
     {
         if (boardManager == null)
         {
-            boardManager = FindObjectOfType<BoardManager>();
+            boardManager = FindFirstObjectByType<BoardManager>();
         }
     }
 }

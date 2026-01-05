@@ -18,6 +18,14 @@ public class PieceMagnet : MonoBehaviour
     {
         targetPos = center;
         hasTarget = true;
+        magnetOn = false;
+
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.useGravity = true;
+            rb.constraints = RigidbodyConstraints.None;
+        }
     }
 
     void FixedUpdate()
@@ -38,6 +46,8 @@ public class PieceMagnet : MonoBehaviour
             rb.angularVelocity = Vector3.zero;
             rb.position = targetPos;
             rb.rotation = Quaternion.Euler(0f, rb.rotation.eulerAngles.y, 0f);
+            rb.useGravity = false;
+            rb.constraints = RigidbodyConstraints.FreezeAll;
             rb.isKinematic = true;
         }
     }

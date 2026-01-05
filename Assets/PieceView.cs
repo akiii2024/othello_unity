@@ -14,6 +14,11 @@ public class PieceView : MonoBehaviour
     [Header("Flip Animation")]
     public float flipHeight = 0.3f;  // ひっくり返すときの上昇高さ
     public float flipDuration = 0.6f;  // アニメーションの総時間
+    
+    [Header("位置維持")]
+    public float snapBackThreshold = 0.02f; // 正規位置からの許容距離
+    Vector3 homePosition;
+    bool hasHomePosition;
 
     Renderer rend;
 
@@ -21,6 +26,12 @@ public class PieceView : MonoBehaviour
     {
         rend = GetComponentInChildren<Renderer>();
         if (rend == null) rend = GetComponent<Renderer>();
+    }
+
+    public void SetHomePosition(Vector3 pos)
+    {
+        homePosition = pos;
+        hasHomePosition = true;
     }
 
     public void SetColorImmediate(DiscColor c)
@@ -51,6 +62,7 @@ public class PieceView : MonoBehaviour
         // 初期状態を保存
         Vector3 startPos = transform.position;
         Quaternion startRot = transform.rotation;
+        Vector3 targetPos = hasHomePosition ? homePosition : startPos;
         Vector3 topPos = startPos + Vector3.up * flipHeight;
         Quaternion midRot = startRot * Quaternion.Euler(0f, 90f, 0f);
         Quaternion endRot = startRot * Quaternion.Euler(0f, 180f, 0f);
@@ -119,7 +131,12 @@ public class PieceView : MonoBehaviour
         // Rigidbodyの状態を復元
         if (rb != null)
         {
-            rb.isKinematic = wasKinematic;
+            // 正規位置からずれていればスナップ
+            if (hasHomePosition && Vector3.Distance(transform.position, targetPos) > snapBackThreshold)
+            {
+                transform.position = targetPos;
+            }
+            FreezeRigidbody(rb);
         }
     }
 
@@ -127,5 +144,17 @@ public class PieceView : MonoBehaviour
     {
         if (rend == null) return;
         rend.sharedMaterial = (Color == DiscColor.Black) ? blackMat : whiteMat;
+    }
+
+    void FreezeRigidbody(Rigidbody rb)
+    {
+        if (rb == null) return;
+        bool wasKinematic = rb.isKinematic;
+        if (wasKinematic) rb.isKinematic = false; // 速度リセット時の警告回避
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.useGravity = false;
+        rb.constraints = RigidbodyConstraints.FreezeAll;
+        rb.isKinematic = true;
     }
 }

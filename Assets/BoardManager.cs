@@ -31,6 +31,8 @@ public class BoardManager : MonoBehaviour
     [Header("スタック設定")]
     public int maxStackHeight = 2;  // 最大スタック段数
     public float stackHeightOffset = 0.15f;  // 駒の厚み（2段目のY座標オフセット）
+    [Tooltip("重なり防止用の隙間。モデルが埋もれる場合は増やす")]
+    public float stackGapEpsilon = 0.01f;
 
     // スタック対応データ構造
     int[,] stackCount = new int[8, 8];           // 各マスの駒の段数（0, 1, 2）
@@ -145,7 +147,20 @@ public class BoardManager : MonoBehaviour
         {
             Debug.Log($"Turn = {turn}");
         }
+        // ターン終了時にワイプ側の状態（内部データ）に盤面を同期
+        // アニメーション完了後に実行（遅延あり）
+        StartCoroutine(DelayedSyncAllStacks());
         UpdateHighlighter();
+    }
+
+    /// <summary>
+    /// アニメーション完了を待ってから盤面を同期
+    /// </summary>
+    IEnumerator DelayedSyncAllStacks()
+    {
+        // flipDurationより少し長めに待機（アニメーション完了を確保）
+        yield return new WaitForSeconds(0.7f);
+        SyncAllStacks();
     }
 
     void ApplyMove(int x, int y, DiscColor color, List<(int x, int y)> flips)
@@ -155,6 +170,7 @@ public class BoardManager : MonoBehaviour
         foreach (var f in flips)
         {
             // スタック全体をひっくり返す
+            Debug.Log($"[Flip] ({f.x},{f.y}) from {topColor[f.x, f.y]} to {color}");
             topColor[f.x, f.y] = color;
             var stack = pieceStacks[f.x, f.y];
             if (stack != null)
@@ -269,26 +285,150 @@ public class BoardManager : MonoBehaviour
 
     static DiscColor Opponent(DiscColor c) => (c == DiscColor.Black) ? DiscColor.White : DiscColor.Black;
 
+    /// <summary>
+    /// 指定マスのスタックを高さ・参照情報ごと再同期する
+    /// （物理やアニメで僅かにずれたり消えたように見えるケースの対策）
+    /// </summary>
+    void RepositionStack(int x, int y)
+    {
+        var stack = pieceStacks[x, y];
+        if (stack == null || stack.Count == 0) return;
+
+        Vector3 basePos = grid.CellToWorld(x, y);
+        for (int i = 0; i < stack.Count; i++)
+        {
+            var pv = stack[i];
+            if (pv == null) continue;
+
+            Vector3 pos = basePos;
+            pos.y += i * stackHeightOffset + stackGapEpsilon * i;
+            pv.SetHomePosition(pos);
+            pv.transform.position = pos;
+
+            var rb = pv.GetComponent<Rigidbody>();
+            FreezeRigidbody(rb);
+        }
+
+        // 念のため内部カウントとトップ色も合わせておく
+        stackCount[x, y] = stack.Count;
+        var top = stack[stack.Count - 1];
+        if (top != null) topColor[x, y] = top.Color;
+    }
+
+    /// <summary>
+    /// stackCount / topColor を基準に駒の GameObject 群を補正する
+    /// （欠けた2段目が消えてしまう現象の再発防止）
+    /// </summary>
+    void EnsureStackVisuals(int x, int y)
+    {
+        int targetCount = stackCount[x, y];
+        if (targetCount < 0) targetCount = 0;
+
+        // リストの用意
+        if (pieceStacks[x, y] == null)
+        {
+            pieceStacks[x, y] = new List<PieceView>();
+        }
+
+        var list = pieceStacks[x, y];
+        // null を除去
+        list.RemoveAll(pv => pv == null);
+
+        // 余分があれば末尾から削除
+        while (list.Count > targetCount)
+        {
+            var last = list[list.Count - 1];
+            if (last != null) Destroy(last.gameObject);
+            list.RemoveAt(list.Count - 1);
+        }
+
+        // 足りなければ補充（全て同色スタックなので topColor を採用）
+        while (list.Count < targetCount)
+        {
+            Vector3 pos = grid.CellToWorld(x, y);
+            pos.y += list.Count * stackHeightOffset + stackGapEpsilon * list.Count;
+
+            var go = Instantiate(piecePrefab, pos, Quaternion.identity);
+            var pv = go.GetComponent<PieceView>();
+            pv.SetColorImmediate(topColor[x, y]);
+            pv.SetHomePosition(pos);
+            FreezeRigidbody(go.GetComponent<Rigidbody>());
+            list.Add(pv);
+        }
+
+        // 位置・物理・カウントを再同期
+        RepositionStack(x, y);
+    }
+
+    /// <summary>
+    /// 全マスの駒を内部データ構造（stackCount/topColor）に同期する
+    /// ワイプ表示の状態を盤面に反映させる
+    /// シーン上の全PieceViewを削除して再生成する方式
+    /// </summary>
+    void SyncAllStacks()
+    {
+        // シーン上の全PieceViewを検索して削除
+        var allPieces = FindObjectsByType<PieceView>(FindObjectsSortMode.None);
+        foreach (var pv in allPieces)
+        {
+            if (pv != null)
+            {
+                Destroy(pv.gameObject);
+            }
+        }
+
+        // pieceStacksをクリア
+        for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+        {
+            if (pieceStacks[x, y] != null)
+            {
+                pieceStacks[x, y].Clear();
+            }
+            else
+            {
+                pieceStacks[x, y] = new List<PieceView>();
+            }
+        }
+
+        // 内部データ（stackCount/topColor）を基に駒を再生成
+        for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+        {
+            int count = stackCount[x, y];
+            DiscColor color = topColor[x, y];
+
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 pos = grid.CellToWorld(x, y);
+                pos.y += i * stackHeightOffset + stackGapEpsilon * i;
+
+                var go = Instantiate(piecePrefab, pos, Quaternion.identity);
+                var pv = go.GetComponent<PieceView>();
+                pv.SetColorImmediate(color);
+                pv.SetHomePosition(pos);
+                FreezeRigidbody(go.GetComponent<Rigidbody>());
+
+                pieceStacks[x, y].Add(pv);
+            }
+        }
+    }
+
     void SpawnDiscImmediate(int x, int y, DiscColor color)
     {
         // スタック段数に応じてY座標をオフセット
         int currentStack = stackCount[x, y];
         Vector3 center = grid.CellToWorld(x, y);
-        center.y += currentStack * stackHeightOffset;
+        center.y += currentStack * stackHeightOffset + stackGapEpsilon * currentStack;
 
         var go = Instantiate(piecePrefab, center, Quaternion.identity);
 
         // 初期配置は物理を止めて固定
-        var rb = go.GetComponent<Rigidbody>();
-        if (rb != null)
-        {
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-            rb.isKinematic = true;
-        }
+        FreezeRigidbody(go.GetComponent<Rigidbody>());
 
         var pv = go.GetComponent<PieceView>();
         pv.SetColorImmediate(color);
+        pv.SetHomePosition(center);
 
         // スタックに追加
         if (pieceStacks[x, y] == null)
@@ -305,7 +445,7 @@ public class BoardManager : MonoBehaviour
         // スタック段数に応じてY座標をオフセット
         int currentStack = stackCount[x, y];
         Vector3 center = grid.CellToWorld(x, y);
-        center.y += currentStack * stackHeightOffset;
+        center.y += currentStack * stackHeightOffset + stackGapEpsilon * currentStack;
         Vector3 spawn = center + Vector3.up * dropHeight;
 
         var go = Instantiate(piecePrefab, spawn, Quaternion.identity);
@@ -313,6 +453,7 @@ public class BoardManager : MonoBehaviour
         // 色設定
         var pv = go.GetComponent<PieceView>();
         pv.SetColorImmediate(color);
+        pv.SetHomePosition(center);
 
         // スタックに追加
         if (pieceStacks[x, y] == null)
@@ -327,9 +468,28 @@ public class BoardManager : MonoBehaviour
         var magnet = go.GetComponent<PieceMagnet>();
         magnet.SetTarget(center);
 
-        // もし前回の固定が残ってたら戻す（Prefab設定によって）
+        // 物理で落下させる間は動けるようにする
         var rb = go.GetComponent<Rigidbody>();
-        if (rb != null) rb.isKinematic = false;
+        if (rb != null)
+        {
+            rb.constraints = RigidbodyConstraints.None;
+            rb.useGravity = true;
+            rb.isKinematic = false;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+    }
+
+    void FreezeRigidbody(Rigidbody rb)
+    {
+        if (rb == null) return;
+        bool wasKinematic = rb.isKinematic;
+        if (wasKinematic) rb.isKinematic = false; // 速度リセット時の警告回避
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.useGravity = false;
+        rb.constraints = RigidbodyConstraints.FreezeAll;
+        rb.isKinematic = true;
     }
     public void UpdateHighlighter()
     {

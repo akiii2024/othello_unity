@@ -83,25 +83,25 @@ public class BoardClickPlace : MonoBehaviour
 
         bool moved = false;
 
-        // 矢印キーまたはWASDでカーソル移動
+        // 矢印キーまたはWASDでカーソル移動（左右・上下を反転）
         if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A))
-        {
-            cursorX = Mathf.Max(0, cursorX - 1);
-            moved = true;
-        }
-        else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D))
         {
             cursorX = Mathf.Min(7, cursorX + 1);
             moved = true;
         }
+        else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D))
+        {
+            cursorX = Mathf.Max(0, cursorX - 1);
+            moved = true;
+        }
         else if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W))
         {
-            cursorY = Mathf.Min(7, cursorY + 1);
+            cursorY = Mathf.Max(0, cursorY - 1);
             moved = true;
         }
         else if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S))
         {
-            cursorY = Mathf.Max(0, cursorY - 1);
+            cursorY = Mathf.Min(7, cursorY + 1);
             moved = true;
         }
 
