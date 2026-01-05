@@ -41,6 +41,10 @@ public class BoardManager : MonoBehaviour
 
     public DiscColor turn = DiscColor.Black;
     bool isProcessingMove = false;  // 手を処理中かどうか
+    Coroutine syncCoroutine = null; // 同期コルーチンの参照（重複防止用）
+    
+    [Header("アニメーション設定")]
+    public float flipAnimationDuration = 0.6f;  // ひっくり返しアニメーション時間
 
     static readonly (int dx, int dy)[] dirs = new (int, int)[]
     {
@@ -51,6 +55,8 @@ public class BoardManager : MonoBehaviour
 
     void Start()
     {
+        // タイトル選択で設定された値を反映してから初期化
+        GameSettings.ApplyTo(this);
         InitBoard();
     }
 
@@ -107,6 +113,7 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
+        // アニメーション中は操作を受け付けない
         if (isProcessingMove)
         {
             return;
@@ -118,6 +125,8 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
+        // 操作をロック
+        isProcessingMove = true;
         ApplyMove(x, y, turn, flips);
         ProcessTurnEnd();
     }
@@ -149,7 +158,12 @@ public class BoardManager : MonoBehaviour
         }
         // ターン終了時にワイプ側の状態（内部データ）に盤面を同期
         // アニメーション完了後に実行（遅延あり）
-        StartCoroutine(DelayedSyncAllStacks());
+        // 既存のコルーチンがあれば停止して新しいものを開始
+        if (syncCoroutine != null)
+        {
+            StopCoroutine(syncCoroutine);
+        }
+        syncCoroutine = StartCoroutine(DelayedSyncAllStacks());
         UpdateHighlighter();
     }
 
@@ -159,8 +173,12 @@ public class BoardManager : MonoBehaviour
     IEnumerator DelayedSyncAllStacks()
     {
         // flipDurationより少し長めに待機（アニメーション完了を確保）
-        yield return new WaitForSeconds(0.7f);
+        yield return new WaitForSeconds(flipAnimationDuration + 0.1f);
         SyncAllStacks();
+        syncCoroutine = null;
+        
+        // アニメーション完了後に操作ロックを解除
+        isProcessingMove = false;
     }
 
     void ApplyMove(int x, int y, DiscColor color, List<(int x, int y)> flips)
@@ -177,7 +195,7 @@ public class BoardManager : MonoBehaviour
             {
                 foreach (var pv in stack)
                 {
-                    if (pv != null) pv.FlipTo(color);
+                    if (pv != null) pv.FlipTo(color, flipAnimationDuration);
                 }
             }
         }
@@ -526,15 +544,16 @@ public class BoardManager : MonoBehaviour
             {
                 ApplyMove(x, y, cpuColor, flips);
                 ProcessTurnEnd();
+                // isProcessingMoveはDelayedSyncAllStacksで解除される
             }
         }
         else
         {
             // 合法手がない場合（パス）
             ProcessTurnEnd();
+            // パスの場合は即座に解除
+            isProcessingMove = false;
         }
-
-        isProcessingMove = false;
     }
 
     // CPUの手を選択するAI

@@ -21,6 +21,12 @@ public class BoardClickPlace : MonoBehaviour
 
     void Update()
     {
+        // タイトル画面表示中は全ての入力を無視
+        if (GameSettings.IsTitleScreenActive)
+        {
+            return;
+        }
+
         // Hキーでヘルプ表示/非表示（ヘルプ表示中でも処理する）
         if (Input.GetKeyDown(KeyCode.H))
         {

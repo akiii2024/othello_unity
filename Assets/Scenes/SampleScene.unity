@@ -593,14 +593,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   boardManager: {fileID: 21739404}
-  customFont: {fileID: 0}
+  customFont: {fileID: 12800000, guid: 4beb055f07aaff244873dec698d0363e, type: 3}
   wipeSize: 150
   margin: 20
   cellPadding: 2
   verticalOffset: 0
   useCustomPositions: 1
-  layer1Position: {x: -200, y: 70, z: 0}
-  layer2Position: {x: 300, y: 70, z: 0}
+  layer1Position: {x: -250, y: 70, z: 0}
+  layer2Position: {x: 250, y: 70, z: 0}
   blackColor: {r: 0, g: 0, b: 0, a: 1}
   whiteColor: {r: 1, g: 1, b: 1, a: 1}
   emptyColor: {r: 0.2, g: 0.5, b: 0.2, a: 1}
